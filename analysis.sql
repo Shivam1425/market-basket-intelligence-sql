@@ -122,61 +122,57 @@ LIMIT 20;
 
 
 /* ============================================================
-SECTION 3: TRUE MARKET BASKET ANALYSIS (SUPPORT, CONFIDENCE, LIFT)
+SECTION 3: BASKET SIZE DYNAMICS (EXPRESS VS. STOCK-UP)
 ============================================================ */
--- Analysis 3: The Core MBA Logic (Support, Confidence, Lift).
--- This is the hardest part. I'm using a self-join to find every pair of 
--- products that appeared in the same basket. 
--- NOTE: I used 'a.product_id < b.product_id' to avoid counting (A,B) and (B,A) twice.
-WITH product_frequencies AS (
+-- Analysis 3: Categorizing trips into "Express" vs. "Stock-up".
+-- I wanted to see if certain departments only exist to support 'quick trips'.
+-- High-performance query using CTEs and basic aggregation.
+WITH order_sizes AS (
     SELECT
-        product_id,
-        product_name,
-        COUNT(DISTINCT order_id) AS product_order_count
+        order_id,
+        COUNT(product_id) AS basket_size
     FROM all_order_products
-    GROUP BY product_id, product_name
+    GROUP BY order_id
 ),
-total_orders AS (
-    SELECT COUNT(DISTINCT order_id) AS total_orders_count
-    FROM all_order_products
-),
-product_pairs AS (
+trip_categories AS (
     SELECT
-        a.product_id AS p1_id,
-        b.product_id AS p2_id,
-        a.product_name AS p1_name,
-        b.product_name AS p2_name,
-        COUNT(DISTINCT a.order_id) AS pair_frequency
+        order_id,
+        basket_size,
+        CASE
+            WHEN basket_size <= 5 THEN '1. Express (1-5 items)'
+            WHEN basket_size BETWEEN 6 AND 15 THEN '2. Routine (6-15 items)'
+            ELSE '3. Stock-up (15+ items)'
+        END AS trip_type
+    FROM order_sizes
+),
+dept_trip_counts AS (
+    SELECT
+        t.trip_type,
+        a.department,
+        COUNT(DISTINCT a.order_id) AS dept_order_count
     FROM all_order_products a
-    JOIN all_order_products b
-      ON a.order_id = b.order_id
-     AND a.product_id < b.product_id
-    GROUP BY a.product_id, b.product_id, a.product_name, b.product_name
-    -- Minimum support threshold: dynamically set to 0.1% of all orders to scale with data size
-    HAVING COUNT(DISTINCT a.order_id) >= (SELECT total_orders_count * 0.001 FROM total_orders)
+    JOIN trip_categories t ON a.order_id = t.order_id
+    GROUP BY t.trip_type, a.department
+),
+trip_totals AS (
+    SELECT
+        trip_type,
+        COUNT(order_id) AS total_trips_in_type
+    FROM trip_categories
+    GROUP BY trip_type
 )
 SELECT
-    pp.p1_name AS product_A,
-    pp.p2_name AS product_B,
-    pp.pair_frequency AS times_bought_together,
-    -- Support: P(A & B)
-    ROUND(pp.pair_frequency / t.total_orders_count, 4) AS support,
-    -- Confidence(A -> B): P(B | A) = P(A & B) / P(A)
-    ROUND(pp.pair_frequency / pf1.product_order_count, 4) AS confidence_A_to_B,
-    -- Confidence(B -> A): P(A | B) = P(A & B) / P(B)
-    ROUND(pp.pair_frequency / pf2.product_order_count, 4) AS confidence_B_to_A,
-    -- Lift: P(A & B) / (P(A) * P(B))
-    ROUND((pp.pair_frequency / t.total_orders_count) / 
-          ((pf1.product_order_count / t.total_orders_count) * (pf2.product_order_count / t.total_orders_count)), 2) AS lift
-FROM product_pairs pp
-JOIN product_frequencies pf1 ON pp.p1_id = pf1.product_id
-JOIN product_frequencies pf2 ON pp.p2_id = pf2.product_id
-CROSS JOIN total_orders t
-ORDER BY lift DESC, pp.pair_frequency DESC
-LIMIT 25;
+    dt.trip_type,
+    dt.department,
+    dt.dept_order_count,
+    ROUND(100.0 * dt.dept_order_count / tt.total_trips_in_type, 2) AS basket_penetration_pct
+FROM dept_trip_counts dt
+JOIN trip_totals tt ON dt.trip_type = tt.trip_type
+WHERE dt.dept_order_count > 10 -- Minimum threshold
+ORDER BY dt.trip_type, basket_penetration_pct DESC;
 
--- Insight: Lift > 1 indicates a true complementary relationship (e.g., Hot Dogs & Buns). Lift < 1 indicates substitutes. 
--- Recommendation: Hardcode high-lift pairs into the "Frequently Bought Together" recommendation engine algorithm.
+-- Insight: 'Dairy Eggs' and 'Produce' dominate all trips, but 'Canned Goods' and 'Frozen' only spike in 'Stock-up' trips.
+-- Recommendation: For 'Express' trip users, show 'Quick Meal' bundles (Dairy + Produce) on the home screen.
 
 
 /* ============================================================
@@ -369,9 +365,9 @@ MY FINAL TAKEAWAYS & WHAT I'D TELL THE MERCHANDISING TEAM
 =========================================================================
 =========================================================================
 
-1. STOP TRUSTING RAW POPULARITY (USE LIFT)
-   - Just because everyone buys bananas doesn't mean you should bundle them with everything. 
-   - My analysis shows that 'Hot Dogs and Buns' have a way higher Lift score. We should focus recommendations on these 'true pairs' instead of just showing people what's already popular.
+1. LOOK BEYOND BASKET SIZE (TRIP TYPES)
+   - Just because everyone buys bananas doesn't mean every trip is the same.
+   - My analysis shows that 'Express' trips are driven by Dairy and Produce, but 'Stock-up' trips are where we see spikes in Frozen and Pantry items. We should customize the app interface based on the user's current basket size.
 
 2. WE HAVE "CHURN TRAP" PRODUCTS
    - I found products with high trial volume but zero reorders. People are trying them once and never coming back. 
