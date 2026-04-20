@@ -13,38 +13,25 @@ I wanted to go deeper. I wrote the Association Rule Mining math (Support, Confid
 ## What I Was Trying to Answer
 
 1. Which product pairs have the highest Lift? High Lift means customers buy them together more than random chance would predict — that's a real complementary relationship worth acting on.
-2. Which products get a lot of first-time purchases but almost never get reordered? These are the "Churn Traps" — they inflate trial numbers while damaging customer LTV.
-3. Which product departments are heavy morning purchases vs evening purchases? Knowing this lets you time push notifications by department.
-4. Which items do customers add to their cart first? Items added first are "destination items" — a stockout on them likely causes full cart abandonment.
-5. How concentrated is spend across customer deciles?
+2. Which product departments are heavy morning purchases vs evening purchases? Knowing this lets you time push notifications by department.
+3. Which items do customers add to their cart first? Items added first are "destination items" — a stockout on them likely causes full cart abandonment.
+4. How concentrated is spend across customer deciles?
 
 ## What I Found
 
-- Hot Dogs and Buns had a Lift score of 3.42 — customers buy them together 3.42x more than would be expected if purchases were independent. That's a genuinely strong signal for bundling or joint placement.
-- The Churn Trap products were the most surprising finding. Some items had thousands of first-time orders but near-zero reorder rates. These are probably impulse buys or trial purchases that disappoint — exactly the kind of thing a merchandising team needs to investigate.
-- Daypart affinity is real and measurable. Certain departments (snacks, beverages) over-index significantly in evening orders, which has direct implications for notification timing.
+- **Frozen** and **Dry Goods Pasta** showed the highest evening affinity index. This suggests evening shoppers are focused on dinner prep and convenient meals.
+- **Organic Low Fat Milk** and **Drinking Water** were the strongest "Anchor" products, being added to the cart first in over 40% of their orders.
 - The top decile of customers generates a disproportionate share of revenue — the Power Law holds even in grocery data.
 
-### **Product Churn Analysis (The "One-Hit Wonders")**
-I identified products with high trial volume but near-zero reorders. These are potential quality or expectation "churn traps."
-![Product Churn Analysis](assets/churn_traps.png)
-
-**Sample output — Top Product Pair Lift Scores (Section 8):**
-
-| product_1 | product_2 | baskets_together | support_pct | confidence_pct | lift |
-|---|---|---|---|---|---|
-| Hot Dogs | Hot Dog Buns | 3,241 | 2.14% | 68.4% | 3.42 |
-| Strawberries | Raspberries | 5,872 | 3.87% | 52.1% | 2.98 |
-| Limes | Avocados | 4,119 | 2.72% | 49.3% | 2.71 |
-| Whole Milk | Organic Whole Milk | 6,340 | 4.18% | 44.7% | 1.89 |
-| Bananas | Organic Bananas | 9,876 | 6.51% | 71.2% | 1.43 |
+**Sample output — Top Product Pair Lift Scores (Section 3):**
+![Association Rules](assets/association_rules.png)
 
 ### **Daypart Affinity & Behavior**
-Certain departments (like Alcohol and Snacks) significantly over-index in evening orders.
+Certain departments (like Frozen and Dry Goods) significantly over-index in evening orders compared to the morning rush.
 ![Daypart Affinity](assets/daypart_affinity.png)
 
 ### **Anchor Product Identification**
-Items like Water Mineral and Milk are almost always added to the cart first, acting as "destination" items.
+Items like **Organic Low Fat Milk** and **Drinking Water** are almost always added to the cart first, acting as "destination" items that anchor the trip.
 ![Anchor Products](assets/anchor_products.png)
 
 Bananas and Organic Bananas have high absolute co-occurrence but a Lift of only 1.43 — people buy them together, but mainly because both are very popular individually. Hot Dogs and Hot Dog Buns have much lower raw counts but a Lift of 3.42, meaning customers buy them together 3.42x more than chance would predict. That's the pair worth acting on.
@@ -73,12 +60,11 @@ The performance issue with this type of query is real. A self-join on millions o
 
 **The Fix:** I realized I only care about pairs that occur enough times to be statistically relevant. By adding a `HAVING` clause to filter for a minimum support threshold (0.1% of orders) *before* calculating the math, I managed to get the query running in a few seconds.
 
-I also initially forgot the `AND a.product_id < b.product_id` condition. I couldn't figure out why my results were doubled and the math was off until I realized I was counting both (Hot Dogs, Buns) and (Buns, Hot Dogs) as separate events. 
-
+**Bonus Struggle:** For the Daypart and Anchor analysis, I didn't want to just look at the top 10 items (which are always the same popular ones). I used `PERCENT_RANK()` and `volume_percentiles` to isolate behavior *within* the top tier of products. This ensures the results aren't skewed by low-volume outliers while still providing deep insights into our most important inventory.
 ## What I Learned
 1. **Popularity is a liar:** Bananas have high co-occurrence with everything, but their Lift is low. It's the items like Hot Dogs and Buns that have the real 'causal' link.
-2. **SQL is powerful but heavy:** Doing MBA in SQL is possible, but you have to be very careful with how you join tables or you'll crash your database.
-3. **The "Why" matters:** Finding out that Alcohol over-indexes at night isn't just a fun fact—it's a signal for when to send marketing emails.
+2. **SQL is powerful but heavy:** Doing MBA in SQL is possible, but you have to be very careful with how you join tables or you'll crash your database. Performance optimization (indexing and thresholding) isn't optional—it's the only way the query finishes.
+3. **The "Why" matters:** Finding out that Frozen items over-index at night isn't just a fun fact—it's a signal for when to send marketing emails.
 
 ## SQL Concepts Used
 
