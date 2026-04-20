@@ -1,0 +1,11 @@
+# Ignore the massive Instacart CSV files
+data/*.csv
+data/*.zip
+*.csv
+*.zip
+
+# Ignore local system files
+.DS_Store
+Thumbs.db
+node_modules/
+.venv/
